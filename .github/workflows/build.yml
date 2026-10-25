@@ -42,7 +42,12 @@ jobs:
         echo "ndk.dir=$PWD/android-ndk-r26b" > local.properties
 
     - name: Build APK with Gradle
-      run: ./gradlew assembleDebug --stacktrace
+      run: |
+        ./gradlew assembleDebug --stacktrace > build_log.txt 2>&1 || {
+          echo "=== BUILD FAILED - EXCEPTION CAUSE ==="
+          grep -C 10 "Caused by:" build_log.txt || tail -n 80 build_log.txt
+          exit 1
+        }
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
