@@ -49,8 +49,8 @@ jobs:
     - name: Build APK with Gradle
       run: |
         ./gradlew assembleDebug --stacktrace > build_log.txt 2>&1 || {
-          echo "=== BUILD FAILED - EXCEPTION CAUSE ==="
-          grep -C 10 "Caused by:" build_log.txt || tail -n 80 build_log.txt
+          echo "=== BUILD FAILED - C++ COMPILER ERROR ==="
+          grep -i -C 5 "error:" build_log.txt || tail -n 100 build_log.txt
           exit 1
         }
 
