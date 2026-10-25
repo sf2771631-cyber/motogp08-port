@@ -42,7 +42,7 @@ jobs:
         echo "ndk.dir=$PWD/android-ndk-r26b" > local.properties
 
     - name: Build APK with Gradle
-      run: ./gradlew assembleDebug
+      run: ./gradlew assembleDebug --stacktrace
 
     - name: Upload APK Artifact
       uses: actions/upload-artifact@v4
