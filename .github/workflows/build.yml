@@ -1,0 +1,26 @@
+name: Build MotoGP 08 Android Port
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Android NDK
+      uses: nttld/setup-ndk@v3
+      with:
+        ndk-version: r26b
+        add-to-path: true
+
+    - name: Verify Environment
+      run: |
+        echo "NDK Home: $ANDROID_NDK_HOME"
+        clang --version
+        echo "Environment ready for cross-compilation!"
