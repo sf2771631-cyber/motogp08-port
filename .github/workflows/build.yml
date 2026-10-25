@@ -34,6 +34,12 @@ jobs:
         fi
         chmod +x gradlew
 
+    - name: Download SDL2 Source
+      run: |
+        if [ ! -d "app/src/main/cpp/SDL" ]; then
+          git clone --depth 1 --branch release-2.30.9 https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL
+        fi
+
     - name: Download and Setup Android NDK r26b
       run: |
         echo "Downloading Android NDK..."
