@@ -13,12 +13,17 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Teal-Targeted PE Analyzer...");
+    LOGI("Starting MotoGP 08 Phase 3: OpenGL ES Graphics Pipeline Initialization...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
         return -1;
     }
+
+    // Request OpenGL ES 3.0 context
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 
     const char* basePath = SDL_AndroidGetExternalStoragePath();
     if (!basePath) {
@@ -44,6 +49,7 @@ int main(int argc, char *argv[]) {
     bool assetExtracted = false;
     bool engineParsed = false;
     bool sectionsParsed = false;
+    bool glContextInitialized = false;
     uint32_t fileCount = 0;
 
     // 1. MIX Pipeline
@@ -88,18 +94,12 @@ int main(int argc, char *argv[]) {
                     char peSig[4] = {0};
                     if (fread(peSig, 1, 4, dllFile) == 4 && peSig[0] == 'P' && peSig[1] == 'E' && peSig[2] == 0 && peSig[3] == 0) {
                         engineParsed = true;
-                        
                         uint16_t machine = 0;
                         uint16_t numOfSections = 0;
-                        
                         fread(&machine, sizeof(uint16_t), 1, dllFile);
                         fread(&numOfSections, sizeof(uint16_t), 1, dllFile);
-                        
-                        LOGI("Engine.dll COFF Machine: 0x%X, Sections: %u", machine, numOfSections);
-                        
                         if (numOfSections > 0 && numOfSections < 96) {
                             sectionsParsed = true;
-                            LOGI("SUCCESS: Engine.dll PE sections verified successfully!");
                         }
                     }
                 }
@@ -113,7 +113,7 @@ int main(int argc, char *argv[]) {
         SDL_WINDOWPOS_UNDEFINED,
         SDL_WINDOWPOS_UNDEFINED,
         1280, 720,
-        SDL_WINDOW_FULLSCREEN | SDL_WINDOW_OPENGL
+        SDL_WINDOW_FULLSCREEN | SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN
     );
 
     if (!window) {
@@ -121,7 +121,20 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    // Create OpenGL ES Context
+    SDL_GLContext glContext = SDL_GL_CreateContext(window);
+    if (glContext) {
+        glContextInitialized = true;
+        const GLubyte* rendererName = glGetString(GL_RENDERER);
+        const GLubyte* versionStr = glGetString(GL_VERSION);
+        LOGI("SUCCESS: OpenGL ES Context Initialized!");
+        LOGI("GPU Renderer: %s", rendererName ? (const char*)rendererName : "Unknown");
+        LOGI("OpenGL Version: %s", versionStr ? (const char*)versionStr : "Unknown");
+    } else {
+        LOGE("ERROR: Failed to create OpenGL context: %s", SDL_GetError());
+    }
+
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer) {
         LOGE("SDL_CreateRenderer Error: %s", SDL_GetError());
         return -1;
@@ -137,9 +150,11 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 8-Stage Status Colors (Teal for Final PE Section Success):
-        if (sectionsParsed) {
-            SDL_SetRenderDrawColor(renderer, 0, 255, 204, 255);    // Stage 8: Brilliant Teal (PE Sections Verified!)
+        // Phase 3 Status Colors: Electric Violet if OpenGL ES context is successfully bound
+        if (glContextInitialized) {
+            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Stage 9: Electric Violet (OpenGL ES 3.0 Context Ready!)
+        } else if (sectionsParsed) {
+            SDL_SetRenderDrawColor(renderer, 0, 255, 204, 255);    // Stage 8: Teal
         } else if (engineParsed) {
             SDL_SetRenderDrawColor(renderer, 255, 30, 30, 255);    // Stage 7: Laser Red
         } else if (assetExtracted) {
@@ -162,6 +177,9 @@ int main(int argc, char *argv[]) {
         SDL_Delay(16);
     }
 
+    if (glContextInitialized) {
+        SDL_GL_DeleteContext(glContext);
+    }
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
