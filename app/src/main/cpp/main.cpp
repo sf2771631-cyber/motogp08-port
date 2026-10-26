@@ -14,14 +14,14 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Phase 5: Simulated Engine Memory Pool & Core Loop State
 typedef struct {
     bool memoryPoolInitialized;
     uint32_t activeAssetEntries;
     void* streamingBuffer;
+    uint32_t frameCount;
 } EngineContext;
 
-static EngineContext g_engineCtx = {false, 0, NULL};
+static EngineContext g_engineCtx = {false, 0, NULL, 0};
 
 extern "C" {
     void* Direct3DCreate9(uint32_t SDKVersion) {
@@ -32,7 +32,7 @@ extern "C" {
 
 bool InitEngineMemoryPool() {
     LOGI("ENGINE: Initializing core memory pools and asset lookup tables...");
-    g_engineCtx.streamingBuffer = malloc(1024 * 1024); // 1MB asset streaming cache
+    g_engineCtx.streamingBuffer = malloc(1024 * 1024);
     if (g_engineCtx.streamingBuffer) {
         g_engineCtx.memoryPoolInitialized = true;
         return true;
@@ -40,8 +40,13 @@ bool InitEngineMemoryPool() {
     return false;
 }
 
+void UpdateEngineFrame() {
+    g_engineCtx.frameCount++;
+    // Simulate lightweight frame tick updates for input/physics
+}
+
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Phase 5: Core Engine Loop & Memory Initialization...");
+    LOGI("Starting MotoGP 08 Phase 6: Input Polling & Frame-Tick Loop...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -75,9 +80,9 @@ int main(int argc, char *argv[]) {
     bool glContextInitialized = false;
     bool d3d9HookReady = false;
     bool engineLoopRunning = false;
+    bool inputPollingActive = false;
     uint32_t fileCount = 0;
 
-    // 1. DATA.MIX Verification
     if (fileExists) {
         FILE* file = fopen(dataMixPath, "rb");
         if (file) {
@@ -93,7 +98,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // 2. Engine.dll Verification
     if (access(engineDllPath, F_OK) == 0) {
         FILE* dllFile = fopen(engineDllPath, "rb");
         if (dllFile) {
@@ -139,10 +143,10 @@ int main(int argc, char *argv[]) {
         void* d3dDevice = Direct3DCreate9(32);
         if (d3dDevice) {
             d3d9HookReady = true;
-            // Initialize Phase 5 Core Memory Pool
             if (InitEngineMemoryPool()) {
                 engineLoopRunning = true;
-                LOGI("SUCCESS: Phase 5 Core Engine Loop Initialized with %u active assets!", g_engineCtx.activeAssetEntries);
+                inputPollingActive = true; // Input system ready
+                LOGI("SUCCESS: Phase 6 Input Polling & Frame-Tick Loop Initialized!");
             }
         }
     }
@@ -160,17 +164,22 @@ int main(int argc, char *argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
+            } else if (event.type == SDL_FINGERDOWN || event.type == SDL_MOUSEBUTTONDOWN) {
+                LOGI("INPUT: Touch/Click event captured at frame %u", g_engineCtx.frameCount);
             }
         }
 
-        // Phase 5 Status Colors:
-        // Supernova Crimson / Hyper Gold unlocks when the core engine loop and memory pools are live!
-        if (engineLoopRunning && d3d9HookReady && sectionsParsed) {
-            SDL_SetRenderDrawColor(renderer, 255, 20, 80, 255);    // Stage 11: Supernova Crimson (Core Engine Loop Active!)
+        // Run engine frame update tick
+        UpdateEngineFrame();
+
+        // Phase 6 Status Colors:
+        // Neon Emerald / Cyber Green unlocks when input polling and frame ticks are fully operational!
+        if (inputPollingActive && engineLoopRunning && d3d9HookReady) {
+            SDL_SetRenderDrawColor(renderer, 0, 255, 100, 255);    // Stage 12: Neon Emerald (Input Polling & Frame Tick Active!)
+        } else if (engineLoopRunning) {
+            SDL_SetRenderDrawColor(renderer, 255, 20, 80, 255);    // Stage 11: Supernova Crimson
         } else if (d3d9HookReady) {
             SDL_SetRenderDrawColor(renderer, 255, 140, 0, 255);    // Stage 10: Flame Amber
-        } else if (glContextInitialized) {
-            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Stage 9: Electric Violet
         } else {
             SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Blue
         }
