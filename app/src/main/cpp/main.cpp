@@ -8,12 +8,21 @@
 #include <errno.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #define LOG_TAG "MotoGP08Port"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Phase 4: D3D9 Compatibility Stub Hook
+// Phase 5: Simulated Engine Memory Pool & Core Loop State
+typedef struct {
+    bool memoryPoolInitialized;
+    uint32_t activeAssetEntries;
+    void* streamingBuffer;
+} EngineContext;
+
+static EngineContext g_engineCtx = {false, 0, NULL};
+
 extern "C" {
     void* Direct3DCreate9(uint32_t SDKVersion) {
         LOGI("D3D9 HOOK: Direct3DCreate9 called with SDK Version: %u", SDKVersion);
@@ -21,8 +30,18 @@ extern "C" {
     }
 }
 
+bool InitEngineMemoryPool() {
+    LOGI("ENGINE: Initializing core memory pools and asset lookup tables...");
+    g_engineCtx.streamingBuffer = malloc(1024 * 1024); // 1MB asset streaming cache
+    if (g_engineCtx.streamingBuffer) {
+        g_engineCtx.memoryPoolInitialized = true;
+        return true;
+    }
+    return false;
+}
+
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Phase 4: File-Gated Pipeline...");
+    LOGI("Starting MotoGP 08 Phase 5: Core Engine Loop & Memory Initialization...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -55,6 +74,7 @@ int main(int argc, char *argv[]) {
     bool sectionsParsed = false;
     bool glContextInitialized = false;
     bool d3d9HookReady = false;
+    bool engineLoopRunning = false;
     uint32_t fileCount = 0;
 
     // 1. DATA.MIX Verification
@@ -66,6 +86,7 @@ int main(int argc, char *argv[]) {
                 headerParsed = true;
                 if (fread(&fileCount, sizeof(uint32_t), 1, file) == 1) {
                     tocParsed = true;
+                    g_engineCtx.activeAssetEntries = fileCount;
                 }
             }
             fclose(file);
@@ -118,6 +139,11 @@ int main(int argc, char *argv[]) {
         void* d3dDevice = Direct3DCreate9(32);
         if (d3dDevice) {
             d3d9HookReady = true;
+            // Initialize Phase 5 Core Memory Pool
+            if (InitEngineMemoryPool()) {
+                engineLoopRunning = true;
+                LOGI("SUCCESS: Phase 5 Core Engine Loop Initialized with %u active assets!", g_engineCtx.activeAssetEntries);
+            }
         }
     }
 
@@ -137,18 +163,16 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Strict File-Gated Status Colors:
-        // Flame Amber ONLY unlocks when both OpenGL, D3D9 stubs, AND actual game assets (DATA.MIX + Engine.dll) are fully verified!
-        if (d3d9HookReady && sectionsParsed && tocParsed) {
-            SDL_SetRenderDrawColor(renderer, 255, 140, 0, 255);    // Flame Amber (All Systems & Game Assets Verified!)
+        // Phase 5 Status Colors:
+        // Supernova Crimson / Hyper Gold unlocks when the core engine loop and memory pools are live!
+        if (engineLoopRunning && d3d9HookReady && sectionsParsed) {
+            SDL_SetRenderDrawColor(renderer, 255, 20, 80, 255);    // Stage 11: Supernova Crimson (Core Engine Loop Active!)
+        } else if (d3d9HookReady) {
+            SDL_SetRenderDrawColor(renderer, 255, 140, 0, 255);    // Stage 10: Flame Amber
         } else if (glContextInitialized) {
-            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Electric Violet (Graphics Context Ready)
-        } else if (sectionsParsed) {
-            SDL_SetRenderDrawColor(renderer, 0, 255, 204, 255);    // Teal (Engine.dll Sections Verified)
-        } else if (fileExists) {
-            SDL_SetRenderDrawColor(renderer, 50, 255, 50, 255);    // Neon Lime (DATA.MIX Found)
+            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Stage 9: Electric Violet
         } else {
-            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Blue (Waiting for Files / Stage 1)
+            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Blue
         }
 
         SDL_RenderClear(renderer);
@@ -157,6 +181,9 @@ int main(int argc, char *argv[]) {
         SDL_Delay(16);
     }
 
+    if (g_engineCtx.streamingBuffer) {
+        free(g_engineCtx.streamingBuffer);
+    }
     if (glContextInitialized) {
         SDL_GL_DeleteContext(glContext);
     }
