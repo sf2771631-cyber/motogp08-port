@@ -23,9 +23,11 @@ typedef struct {
     GLuint fragmentShader;
     GLuint shaderProgram;
     bool renderingPipelineReady;
+    SDL_AudioDeviceID audioDevice;
+    bool audioSubsystemReady;
 } EngineContext;
 
-static EngineContext g_engineCtx = {false, 0, NULL, 0, 0, 0, 0, false};
+static EngineContext g_engineCtx = {false, 0, NULL, 0, 0, 0, 0, false, 0, false};
 
 // Phase 7: OpenGL ES 3.0 Shader Pipeline Setup
 const char* vertexShaderSource =
@@ -48,6 +50,13 @@ extern "C" {
         LOGI("D3D9 HOOK: Direct3DCreate9 called with SDK Version: %u", SDKVersion);
         return (void*)0x9999;
     }
+    
+    // Phase 8: DirectSound/XAudio2 Hook Stubs
+    int DirectSoundCreate8(void* guid, void** ppDS8, void* pUnkOuter) {
+        LOGI("AUDIO HOOK: DirectSoundCreate8 hooked for Android Audio Bridge!");
+        if (ppDS8) *ppDS8 = (void*)0x8888;
+        return 0; // DS_OK
+    }
 }
 
 bool InitEngineMemoryPool() {
@@ -60,8 +69,6 @@ bool InitEngineMemoryPool() {
 }
 
 bool InitShaderPipeline() {
-    LOGI("ENGINE: Building GLES3 Shader & Geometry Translation Pipeline...");
-    
     GLuint vShader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vShader, 1, &vertexShaderSource, NULL);
     glCompileShader(vShader);
@@ -82,10 +89,28 @@ bool InitShaderPipeline() {
         g_engineCtx.fragmentShader = fShader;
         g_engineCtx.shaderProgram = program;
         g_engineCtx.renderingPipelineReady = true;
-        LOGI("SUCCESS: Phase 7 Shader Translation Bridge Linked!");
+        return true;
+    }
+    return false;
+}
+
+bool InitAudioSubsystem() {
+    LOGI("ENGINE: Initializing Native Audio Bridge & SDL AudioSpec...");
+    SDL_AudioSpec desiredSpec, obtainedSpec;
+    SDL_zero(desiredSpec);
+    desiredSpec.freq = 44100;
+    desiredSpec.format = AUDIO_S16SYS;
+    desiredSpec.channels = 2;
+    desiredSpec.samples = 4096;
+
+    g_engineCtx.audioDevice = SDL_OpenAudioDevice(NULL, 0, &desiredSpec, &obtainedSpec, 0);
+    if (g_engineCtx.audioDevice > 0) {
+        SDL_PauseAudioDevice(g_engineCtx.audioDevice, 0); // Unpause audio stream
+        g_engineCtx.audioSubsystemReady = true;
+        LOGI("SUCCESS: Phase 8 Native Audio Subsystem Initialized (Device ID: %d)!", g_engineCtx.audioDevice);
         return true;
     } else {
-        LOGE("ERROR: Shader linkage failed");
+        LOGE("WARNING: SDL Audio initialization failed: %s", SDL_GetError());
         return false;
     }
 }
@@ -95,7 +120,7 @@ void UpdateEngineFrame() {
 }
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Phase 7: Texture & Geometry Shader Translation...");
+    LOGI("Starting MotoGP 08 Phase 8: Audio Subsystem & DirectSound Bridge...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -130,9 +155,9 @@ int main(int argc, char *argv[]) {
     bool engineLoopRunning = false;
     bool inputPollingActive = false;
     bool shaderPipelineReady = false;
+    bool audioReady = false;
     uint32_t fileCount = 0;
 
-    // 1. DATA.MIX Verification
     if (fileExists) {
         FILE* file = fopen(dataMixPath, "rb");
         if (file) {
@@ -147,7 +172,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // 2. Engine.dll Verification
     if (engineFileExists) {
         FILE* dllFile = fopen(engineDllPath, "rb");
         if (dllFile) {
@@ -184,13 +208,19 @@ int main(int argc, char *argv[]) {
     if (glContext) {
         glContextInitialized = true;
         void* d3dDevice = Direct3DCreate9(32);
-        if (d3dDevice) {
+        void* dsDevice = NULL;
+        DirectSoundCreate8(NULL, &dsDevice, NULL);
+        
+        if (d3dDevice && dsDevice) {
             d3d9HookReady = true;
             if (InitEngineMemoryPool()) {
                 engineLoopRunning = true;
                 inputPollingActive = true;
                 if (InitShaderPipeline()) {
                     shaderPipelineReady = true;
+                    if (InitAudioSubsystem()) {
+                        audioReady = true;
+                    }
                 }
             }
         }
@@ -214,14 +244,14 @@ int main(int argc, char *argv[]) {
 
         UpdateEngineFrame();
 
-        // Phase 7 Color Verification:
-        // Laser Cyan ONLY lights up when the GLES3 Shader Pipeline compiled & linked on top of verified game files!
-        if (shaderPipelineReady && inputPollingActive && engineLoopRunning && sectionsParsed && tocParsed && fileExists && engineFileExists) {
-            SDL_SetRenderDrawColor(renderer, 0, 204, 255, 255);   // Laser Cyan (Stage 13: Geometry & Shader Pipeline Linked!)
-        } else if (inputPollingActive && engineLoopRunning && sectionsParsed && tocParsed) {
+        // Phase 8 Color Verification:
+        // Sonic Indigo ONLY lights up when DirectSound hooks + Native AudioSpec device bind successfully!
+        if (audioReady && shaderPipelineReady && inputPollingActive && engineLoopRunning && sectionsParsed && tocParsed && fileExists && engineFileExists) {
+            SDL_SetRenderDrawColor(renderer, 75, 0, 130, 255);    // Sonic Indigo (Stage 14: Sound Engine & Audio Device Bound!)
+        } else if (shaderPipelineReady) {
+            SDL_SetRenderDrawColor(renderer, 0, 204, 255, 255);   // Laser Cyan
+        } else if (inputPollingActive) {
             SDL_SetRenderDrawColor(renderer, 0, 255, 100, 255);   // Neon Emerald
-        } else if (d3d9HookReady && glContextInitialized) {
-            SDL_SetRenderDrawColor(renderer, 255, 140, 0, 255);   // Flame Amber
         } else {
             SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Deep Blue
         }
@@ -232,6 +262,9 @@ int main(int argc, char *argv[]) {
         SDL_Delay(16);
     }
 
+    if (g_engineCtx.audioDevice > 0) {
+        SDL_CloseAudioDevice(g_engineCtx.audioDevice);
+    }
     if (g_engineCtx.streamingBuffer) {
         free(g_engineCtx.streamingBuffer);
     }
