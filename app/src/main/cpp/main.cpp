@@ -26,9 +26,14 @@ typedef struct {
     SDL_AudioDeviceID audioDevice;
     bool audioSubsystemReady;
     bool gameBooted;
+    // Touch Control States
+    bool throttlePressed;
+    bool brakePressed;
+    bool steerLeftPressed;
+    bool steerRightPressed;
 } EngineContext;
 
-static EngineContext g_engineCtx = {false, 0, NULL, 0, 0, 0, 0, false, 0, false, false};
+static EngineContext g_engineCtx = {false, 0, NULL, 0, 0, 0, 0, false, 0, false, false, false, false, false, false};
 
 const char* vertexShaderSource =
     "#version 300 es\n"
@@ -37,31 +42,29 @@ const char* vertexShaderSource =
     "   gl_Position = vec4(aPos, 1.0);\n"
     "}\n";
 
-// Live Frame Fragment Shader for Game Viewport Output
 const char* fragmentShaderSource =
     "#version 300 es\n"
     "precision mediump float;\n"
     "out vec4 FragColor;\n"
     "void main() {\n"
-    "   // Live Engine Viewport: Transitioning from Gold to Game Frame Buffer\n"
     "   FragColor = vec4(0.05, 0.08, 0.12, 1.0);\n" 
     "}\n";
 
 extern "C" {
     void* Direct3DCreate9(uint32_t SDKVersion) {
-        LOGI("D3D9 HOOK: Direct3DCreate9 active for Game Viewport: %u", SDKVersion);
+        LOGI("D3D9 HOOK: Direct3DCreate9 active: %u", SDKVersion);
         return (void*)0x9999;
     }
     
     int DirectSoundCreate8(void* guid, void** ppDS8, void* pUnkOuter) {
-        LOGI("AUDIO HOOK: DirectSoundCreate8 active for MotoGP 08 stream.");
+        LOGI("AUDIO HOOK: DirectSoundCreate8 active.");
         if (ppDS8) *ppDS8 = (void*)0x8888;
         return 0;
     }
 }
 
 bool InitEngineMemoryPool() {
-    g_engineCtx.streamingBuffer = malloc(4096 * 4096); // Expanded Asset Pool
+    g_engineCtx.streamingBuffer = malloc(4096 * 4096);
     if (g_engineCtx.streamingBuffer) {
         g_engineCtx.memoryPoolInitialized = true;
         return true;
@@ -116,8 +119,49 @@ void UpdateEngineFrame() {
     g_engineCtx.frameCount++;
 }
 
+void HandleTouchInput(SDL_Event* event, int windowWidth, int windowHeight) {
+    float x = 0, y = 0;
+    bool isDown = false;
+    bool isUp = false;
+
+    if (event->type == SDL_FINGERDOWN || event->type == SDL_FINGERMOTION) {
+        x = event->tfinger.x * windowWidth;
+        y = event->tfinger.y * windowHeight;
+        isDown = true;
+    } else if (event->type == SDL_FINGERUP) {
+        x = event->tfinger.x * windowWidth;
+        y = event->tfinger.y * windowHeight;
+        isUp = true;
+    }
+
+    if (isDown || isUp) {
+        // Layout: 
+        // Left side: Steering Left/Right (X < windowWidth * 0.4)
+        // Right side Bottom: Throttle (X > windowWidth * 0.7, Y > windowHeight * 0.5)
+        // Right side Top: Brake (X > windowWidth * 0.7, Y <= windowHeight * 0.5)
+
+        bool activeState = isDown;
+
+        if (x < windowWidth * 0.2f) {
+            g_engineCtx.steerLeftPressed = activeState;
+            if (activeState) LOGI("CONTROL: Steer Left Pressed");
+        } else if (x >= windowWidth * 0.2f && x < windowWidth * 0.4f) {
+            g_engineCtx.steerRightPressed = activeState;
+            if (activeState) LOGI("CONTROL: Steer Right Pressed");
+        } else if (x > windowWidth * 0.7f) {
+            if (y > windowHeight * 0.5f) {
+                g_engineCtx.throttlePressed = activeState;
+                if (activeState) LOGI("CONTROL: THROTTLE (GAS) Pressed!");
+            } else {
+                g_engineCtx.brakePressed = activeState;
+                if (activeState) LOGI("CONTROL: BRAKE Pressed!");
+            }
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Live Render Pipeline...");
+    LOGI("Starting MotoGP 08 Phase 10: Touch Controls Overlay...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -201,6 +245,9 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
+    int winWidth = 1280, winHeight = 720;
+    SDL_GetWindowSize(window, &winWidth, &winHeight);
+
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
     if (glContext) {
         glContextInitialized = true;
@@ -218,7 +265,6 @@ int main(int argc, char *argv[]) {
                     if (InitAudioSubsystem()) {
                         audioReady = true;
                         g_engineCtx.gameBooted = true;
-                        LOGI("SUCCESS: MotoGP 08 Live Render Pipeline Active!");
                     }
                 }
             }
@@ -234,7 +280,6 @@ int main(int argc, char *argv[]) {
     bool running = true;
     SDL_Event event;
 
-    // Use GLES3 Program for rendering game frame primitives
     if (g_engineCtx.shaderProgram) {
         glUseProgram(g_engineCtx.shaderProgram);
     }
@@ -243,18 +288,40 @@ int main(int argc, char *argv[]) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
-            } else if (event.type == SDL_FINGERDOWN) {
-                LOGI("GAME INPUT: Touch registered at frame %u", g_engineCtx.frameCount);
+            } else {
+                HandleTouchInput(&event, winWidth, winHeight);
             }
         }
 
         UpdateEngineFrame();
 
-        // Clear and execute OpenGL ES draw calls for the game viewport
+        // Clear Viewport
         glClearColor(0.05f, 0.08f, 0.12f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Present via SDL
+        // Render Touch Controls HUD Overlay using SDL Renderer
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+
+        // 1. Steer Left Button (Left translucent box)
+        SDL_SetRenderDrawColor(renderer, 0, 204, 255, g_engineCtx.steerLeftPressed ? 180 : 70);
+        SDL_Rect steerLeftRect = {20, winHeight - 160, 100, 120};
+        SDL_RenderFillRect(renderer, &steerLeftRect);
+
+        // 2. Steer Right Button
+        SDL_SetRenderDrawColor(renderer, 0, 204, 255, g_engineCtx.steerRightPressed ? 180 : 70);
+        SDL_Rect steerRightRect = {140, winHeight - 160, 100, 120};
+        SDL_RenderFillRect(renderer, &steerRightRect);
+
+        // 3. Brake Button (Top Right)
+        SDL_SetRenderDrawColor(renderer, 255, 60, 60, g_engineCtx.brakePressed ? 180 : 70);
+        SDL_Rect brakeRect = {winWidth - 140, winHeight - 280, 110, 100};
+        SDL_RenderFillRect(renderer, &brakeRect);
+
+        // 4. Throttle / Gas Button (Bottom Right - Large)
+        SDL_SetRenderDrawColor(renderer, 0, 255, 100, g_engineCtx.throttlePressed ? 200 : 80);
+        SDL_Rect throttleRect = {winWidth - 160, winHeight - 160, 130, 130};
+        SDL_RenderFillRect(renderer, &throttleRect);
+
         SDL_RenderPresent(renderer);
 
         SDL_Delay(16);
