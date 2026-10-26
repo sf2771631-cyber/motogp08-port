@@ -13,7 +13,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 PE Section & Import Analyzer...");
+    LOGI("Starting MotoGP 08 Teal-Targeted PE Analyzer...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -46,7 +46,7 @@ int main(int argc, char *argv[]) {
     bool sectionsParsed = false;
     uint32_t fileCount = 0;
 
-    // 1. MIX Pipeline Verification
+    // 1. MIX Pipeline
     if (fileExists) {
         FILE* file = fopen(dataMixPath, "rb");
         if (file) {
@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // 2. Engine.dll PE Section & Header Verification
+    // 2. Engine.dll PE Section Verification
     if (access(engineDllPath, F_OK) == 0) {
         FILE* dllFile = fopen(engineDllPath, "rb");
         if (dllFile) {
@@ -85,19 +85,21 @@ int main(int argc, char *argv[]) {
                 int32_t peOffset = 0;
                 if (fread(&peOffset, sizeof(int32_t), 1, dllFile) == 1) {
                     fseek(dllFile, peOffset, SEEK_SET);
-                    char peSignature[4] = {0};
-                    if (fread(peSignature, 1, 4, dllFile) == 4 && peSignature[0] == 'P' && peSignature[1] == 'E' && peSignature[2] == 0 && peSignature[3] == 0) {
+                    char peSig[4] = {0};
+                    if (fread(peSig, 1, 4, dllFile) == 4 && peSig[0] == 'P' && peSig[1] == 'E' && peSig[2] == 0 && peSig[3] == 0) {
                         engineParsed = true;
                         
-                        // Read PE File Header to get Number of Sections (located 6 bytes after PE signature start)
-                        // PE Header format: Signature(4) + Machine(2) + NumberOfSections(2) ...
-                        fseek(dllFile, peOffset + 4 + 2, SEEK_SET);
+                        uint16_t machine = 0;
                         uint16_t numOfSections = 0;
-                        if (fread(&numOfSections, sizeof(uint16_t), 1, dllFile) == 1) {
-                            LOGI("SUCCESS: Engine.dll parsed! Number of PE sections: %u", numOfSections);
-                            if (numOfSections > 0 && numOfSections < 100) {
-                                sectionsParsed = true;
-                            }
+                        
+                        fread(&machine, sizeof(uint16_t), 1, dllFile);
+                        fread(&numOfSections, sizeof(uint16_t), 1, dllFile);
+                        
+                        LOGI("Engine.dll COFF Machine: 0x%X, Sections: %u", machine, numOfSections);
+                        
+                        if (numOfSections > 0 && numOfSections < 96) {
+                            sectionsParsed = true;
+                            LOGI("SUCCESS: Engine.dll PE sections verified successfully!");
                         }
                     }
                 }
@@ -135,9 +137,9 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 8-Stage Visual Status Colors:
+        // 8-Stage Status Colors (Teal for Final PE Section Success):
         if (sectionsParsed) {
-            SDL_SetRenderDrawColor(renderer, 75, 0, 130, 255);      // Stage 8: Racing Electric Indigo (PE Sections Verified!)
+            SDL_SetRenderDrawColor(renderer, 0, 255, 204, 255);    // Stage 8: Brilliant Teal (PE Sections Verified!)
         } else if (engineParsed) {
             SDL_SetRenderDrawColor(renderer, 255, 30, 30, 255);    // Stage 7: Laser Red
         } else if (assetExtracted) {
