@@ -1,4 +1,5 @@
 #include <SDL.h>
+#include <GLES3/gl3.h>
 #include <android/log.h>
 #include <sys/stat.h>
 #include <sys/types.h>

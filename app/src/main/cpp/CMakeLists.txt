@@ -9,7 +9,7 @@ add_library(motogp08 SHARED
 
 target_include_directories(motogp08 PRIVATE SDL/include)
 
-target_link_libraries(motogp08
+target_link_libraries(motogp08 GLESv3 
     SDL2
     SDL2main
     android
