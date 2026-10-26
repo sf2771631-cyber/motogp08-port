@@ -26,7 +26,6 @@ typedef struct {
     SDL_AudioDeviceID audioDevice;
     bool audioSubsystemReady;
     bool gameBooted;
-    // Touch Control States
     bool throttlePressed;
     bool brakePressed;
     bool steerLeftPressed;
@@ -52,12 +51,9 @@ const char* fragmentShaderSource =
 
 extern "C" {
     void* Direct3DCreate9(uint32_t SDKVersion) {
-        LOGI("D3D9 HOOK: Direct3DCreate9 active: %u", SDKVersion);
         return (void*)0x9999;
     }
-    
     int DirectSoundCreate8(void* guid, void** ppDS8, void* pUnkOuter) {
-        LOGI("AUDIO HOOK: DirectSoundCreate8 active.");
         if (ppDS8) *ppDS8 = (void*)0x8888;
         return 0;
     }
@@ -65,11 +61,7 @@ extern "C" {
 
 bool InitEngineMemoryPool() {
     g_engineCtx.streamingBuffer = malloc(4096 * 4096);
-    if (g_engineCtx.streamingBuffer) {
-        g_engineCtx.memoryPoolInitialized = true;
-        return true;
-    }
-    return false;
+    return g_engineCtx.streamingBuffer != NULL;
 }
 
 bool InitShaderPipeline() {
@@ -120,162 +112,71 @@ void UpdateEngineFrame() {
 }
 
 void HandleTouchInput(SDL_Event* event, int windowWidth, int windowHeight) {
-    float x = 0, y = 0;
-    bool isDown = false;
-    bool isUp = false;
+    if (event->type == SDL_FINGERDOWN || event->type == SDL_FINGERUP || event->type == SDL_FINGERMOTION) {
+        float x = event->tfinger.x * windowWidth;
+        float y = event->tfinger.y * windowHeight;
+        bool active = (event->type != SDL_FINGERUP);
 
-    if (event->type == SDL_FINGERDOWN || event->type == SDL_FINGERMOTION) {
-        x = event->tfinger.x * windowWidth;
-        y = event->tfinger.y * windowHeight;
-        isDown = true;
-    } else if (event->type == SDL_FINGERUP) {
-        x = event->tfinger.x * windowWidth;
-        y = event->tfinger.y * windowHeight;
-        isUp = true;
-    }
+        // Reset all states first to prevent ghost sticky keys
+        g_engineCtx.steerLeftPressed = false;
+        g_engineCtx.steerRightPressed = false;
+        g_engineCtx.throttlePressed = false;
+        g_engineCtx.brakePressed = false;
 
-    if (isDown || isUp) {
-        // Layout: 
-        // Left side: Steering Left/Right (X < windowWidth * 0.4)
-        // Right side Bottom: Throttle (X > windowWidth * 0.7, Y > windowHeight * 0.5)
-        // Right side Top: Brake (X > windowWidth * 0.7, Y <= windowHeight * 0.5)
-
-        bool activeState = isDown;
-
-        if (x < windowWidth * 0.2f) {
-            g_engineCtx.steerLeftPressed = activeState;
-            if (activeState) LOGI("CONTROL: Steer Left Pressed");
-        } else if (x >= windowWidth * 0.2f && x < windowWidth * 0.4f) {
-            g_engineCtx.steerRightPressed = activeState;
-            if (activeState) LOGI("CONTROL: Steer Right Pressed");
-        } else if (x > windowWidth * 0.7f) {
-            if (y > windowHeight * 0.5f) {
-                g_engineCtx.throttlePressed = activeState;
-                if (activeState) LOGI("CONTROL: THROTTLE (GAS) Pressed!");
-            } else {
-                g_engineCtx.brakePressed = activeState;
-                if (activeState) LOGI("CONTROL: BRAKE Pressed!");
-            }
+        // Evaluate active touches based on exact layout bounds
+        // Left Side D-Pad / Steering
+        if (x >= 40 && x <= 150 && y >= windowHeight - 180 && y <= windowHeight - 50) {
+            g_engineCtx.steerLeftPressed = active;
+        } else if (x >= 170 && x <= 280 && y >= windowHeight - 180 && y <= windowHeight - 50) {
+            g_engineCtx.steerRightPressed = active;
+        }
+        
+        // Right Side Pedals (Gas / Brake)
+        if (x >= windowWidth - 280 && x <= windowWidth - 160 && y >= windowHeight - 180 && y <= windowHeight - 50) {
+            g_engineCtx.brakePressed = active;
+        } else if (x >= windowWidth - 150 && x <= windowWidth - 30 && y >= windowHeight - 200 && y <= windowHeight - 40) {
+            g_engineCtx.throttlePressed = active;
         }
     }
 }
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Phase 10: Touch Controls Overlay...");
-
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
-        LOGE("SDL_Init Error: %s", SDL_GetError());
-        return -1;
-    }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) return -1;
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
 
     const char* basePath = SDL_AndroidGetExternalStoragePath();
-    if (!basePath) {
-        basePath = "/sdcard/Android/data/com.port.motogp08/files";
-    }
+    if (!basePath) basePath = "/sdcard/Android/data/com.port.motogp08/files";
 
-    char dataMixPath[512];
-    char engineDllPath[512];
-    char cacheDirPath[512];
-    
+    char dataMixPath[512], engineDllPath[512], cacheDirPath[512];
     snprintf(dataMixPath, sizeof(dataMixPath), "%s/DATA.MIX", basePath);
     snprintf(engineDllPath, sizeof(engineDllPath), "%s/Engine.dll", basePath);
     snprintf(cacheDirPath, sizeof(cacheDirPath), "%s/cache", basePath);
-
     mkdir(cacheDirPath, 0777);
 
     bool fileExists = (access(dataMixPath, F_OK) == 0);
     bool engineFileExists = (access(engineDllPath, F_OK) == 0);
-    bool tocParsed = false;
-    bool sectionsParsed = false;
-    bool glContextInitialized = false;
-    bool d3d9HookReady = false;
-    bool engineLoopRunning = false;
-    bool inputPollingActive = false;
-    bool shaderPipelineReady = false;
-    bool audioReady = false;
-    uint32_t fileCount = 0;
 
-    if (fileExists) {
-        FILE* file = fopen(dataMixPath, "rb");
-        if (file) {
-            char header[5] = {0};
-            if (fread(header, 1, 4, file) == 4) {
-                if (fread(&fileCount, sizeof(uint32_t), 1, file) == 1) {
-                    tocParsed = true;
-                    g_engineCtx.activeAssetEntries = fileCount;
-                }
-            }
-            fclose(file);
-        }
-    }
-
-    if (engineFileExists) {
-        FILE* dllFile = fopen(engineDllPath, "rb");
-        if (dllFile) {
-            char mzHeader[2] = {0};
-            if (fread(mzHeader, 1, 2, dllFile) == 2 && mzHeader[0] == 'M' && mzHeader[1] == 'Z') {
-                fseek(dllFile, 0x3C, SEEK_SET);
-                int32_t peOffset = 0;
-                if (fread(&peOffset, sizeof(int32_t), 1, dllFile) == 1) {
-                    fseek(dllFile, peOffset, SEEK_SET);
-                    char peSig[4] = {0};
-                    if (fread(peSig, 1, 4, dllFile) == 4 && peSig[0] == 'P' && peSig[1] == 'E') {
-                        sectionsParsed = true;
-                    }
-                }
-            }
-            fclose(dllFile);
-        }
-    }
-
-    SDL_Window* window = SDL_CreateWindow(
-        "MotoGP 08 Port",
-        SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED,
-        1280, 720,
-        SDL_WINDOW_FULLSCREEN | SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN
-    );
-
-    if (!window) {
-        LOGE("SDL_CreateWindow Error: %s", SDL_GetError());
-        return -1;
-    }
+    SDL_Window* window = SDL_CreateWindow("MotoGP 08 Port", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 1280, 720, SDL_WINDOW_FULLSCREEN | SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN);
+    if (!window) return -1;
 
     int winWidth = 1280, winHeight = 720;
     SDL_GetWindowSize(window, &winWidth, &winHeight);
 
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
     if (glContext) {
-        glContextInitialized = true;
-        void* d3dDevice = Direct3DCreate9(32);
+        Direct3DCreate9(32);
         void* dsDevice = NULL;
         DirectSoundCreate8(NULL, &dsDevice, NULL);
-        
-        if (d3dDevice && dsDevice) {
-            d3d9HookReady = true;
-            if (InitEngineMemoryPool()) {
-                engineLoopRunning = true;
-                inputPollingActive = true;
-                if (InitShaderPipeline()) {
-                    shaderPipelineReady = true;
-                    if (InitAudioSubsystem()) {
-                        audioReady = true;
-                        g_engineCtx.gameBooted = true;
-                    }
-                }
-            }
+        if (InitEngineMemoryPool() && InitShaderPipeline() && InitAudioSubsystem()) {
+            g_engineCtx.gameBooted = true;
         }
     }
 
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (!renderer) {
-        LOGE("SDL_CreateRenderer Error: %s", SDL_GetError());
-        return -1;
-    }
+    if (!renderer) return -1;
 
     bool running = true;
     SDL_Event event;
@@ -295,47 +196,39 @@ int main(int argc, char *argv[]) {
 
         UpdateEngineFrame();
 
-        // Clear Viewport
         glClearColor(0.05f, 0.08f, 0.12f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // Render Touch Controls HUD Overlay using SDL Renderer
+        // Render Perfectly Spaced, Clean HUD Buttons with Distinct Deadzones
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
 
-        // 1. Steer Left Button (Left translucent box)
-        SDL_SetRenderDrawColor(renderer, 0, 204, 255, g_engineCtx.steerLeftPressed ? 180 : 70);
-        SDL_Rect steerLeftRect = {20, winHeight - 160, 100, 120};
-        SDL_RenderFillRect(renderer, &steerLeftRect);
+        // 1. Steer Left (Cyan Box - Bottom Left)
+        SDL_SetRenderDrawColor(renderer, 0, 204, 255, g_engineCtx.steerLeftPressed ? 255 : 90);
+        SDL_Rect lRect = {40, winHeight - 180, 105, 130};
+        SDL_RenderFillRect(renderer, &lRect);
 
-        // 2. Steer Right Button
-        SDL_SetRenderDrawColor(renderer, 0, 204, 255, g_engineCtx.steerRightPressed ? 180 : 70);
-        SDL_Rect steerRightRect = {140, winHeight - 160, 100, 120};
-        SDL_RenderFillRect(renderer, &steerRightRect);
+        // 2. Steer Right (Cyan Box - Bottom Left, nicely spaced)
+        SDL_SetRenderDrawColor(renderer, 0, 204, 255, g_engineCtx.steerRightPressed ? 255 : 90);
+        SDL_Rect rRect = {165, winHeight - 180, 105, 130};
+        SDL_RenderFillRect(renderer, &rRect);
 
-        // 3. Brake Button (Top Right)
-        SDL_SetRenderDrawColor(renderer, 255, 60, 60, g_engineCtx.brakePressed ? 180 : 70);
-        SDL_Rect brakeRect = {winWidth - 140, winHeight - 280, 110, 100};
-        SDL_RenderFillRect(renderer, &brakeRect);
+        // 3. Brake Pedal (Red Box - Bottom Right)
+        SDL_SetRenderDrawColor(renderer, 255, 60, 60, g_engineCtx.brakePressed ? 255 : 90);
+        SDL_Rect bRect = {winWidth - 280, winHeight - 180, 110, 130};
+        SDL_RenderFillRect(renderer, &bRect);
 
-        // 4. Throttle / Gas Button (Bottom Right - Large)
-        SDL_SetRenderDrawColor(renderer, 0, 255, 100, g_engineCtx.throttlePressed ? 200 : 80);
-        SDL_Rect throttleRect = {winWidth - 160, winHeight - 160, 130, 130};
-        SDL_RenderFillRect(renderer, &throttleRect);
+        // 4. Throttle Pedal (Emerald Green Box - Bottom Right, large & accessible)
+        SDL_SetRenderDrawColor(renderer, 0, 255, 100, g_engineCtx.throttlePressed ? 255 : 100);
+        SDL_Rect tRect = {winWidth - 150, winHeight - 200, 120, 150};
+        SDL_RenderFillRect(renderer, &tRect);
 
         SDL_RenderPresent(renderer);
-
         SDL_Delay(16);
     }
 
-    if (g_engineCtx.audioDevice > 0) {
-        SDL_CloseAudioDevice(g_engineCtx.audioDevice);
-    }
-    if (g_engineCtx.streamingBuffer) {
-        free(g_engineCtx.streamingBuffer);
-    }
-    if (glContextInitialized) {
-        SDL_GL_DeleteContext(glContext);
-    }
+    if (g_engineCtx.audioDevice > 0) SDL_CloseAudioDevice(g_engineCtx.audioDevice);
+    if (g_engineCtx.streamingBuffer) free(g_engineCtx.streamingBuffer);
+    if (glContext) SDL_GL_DeleteContext(glContext);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
