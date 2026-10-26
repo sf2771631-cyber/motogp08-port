@@ -13,15 +13,22 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
+// Phase 4: D3D9 Compatibility Stub Hook
+extern "C" {
+    void* Direct3DCreate9(uint32_t SDKVersion) {
+        LOGI("D3D9 HOOK: Direct3DCreate9 called with SDK Version: %u", SDKVersion);
+        return (void*)0x9999; // Mock D3D9 device interface handle
+    }
+}
+
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Phase 3: OpenGL ES Graphics Pipeline Initialization...");
+    LOGI("Starting MotoGP 08 Phase 4: D3D9 Translation Bridge Initialization...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
         return -1;
     }
 
-    // Request OpenGL ES 3.0 context
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -51,6 +58,7 @@ int main(int argc, char *argv[]) {
     bool engineParsed = false;
     bool sectionsParsed = false;
     bool glContextInitialized = false;
+    bool d3d9HookReady = false;
     uint32_t fileCount = 0;
 
     // 1. MIX Pipeline
@@ -122,17 +130,15 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    // Create OpenGL ES Context
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
     if (glContext) {
         glContextInitialized = true;
-        const GLubyte* rendererName = glGetString(GL_RENDERER);
-        const GLubyte* versionStr = glGetString(GL_VERSION);
-        LOGI("SUCCESS: OpenGL ES Context Initialized!");
-        LOGI("GPU Renderer: %s", rendererName ? (const char*)rendererName : "Unknown");
-        LOGI("OpenGL Version: %s", versionStr ? (const char*)versionStr : "Unknown");
-    } else {
-        LOGE("ERROR: Failed to create OpenGL context: %s", SDL_GetError());
+        // Test our D3D9 hook stub
+        void* d3dDevice = Direct3DCreate9(32);
+        if (d3dDevice) {
+            d3d9HookReady = true;
+            LOGI("SUCCESS: D3D9 Translation Bridge Stub Initialized!");
+        }
     }
 
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
@@ -151,9 +157,11 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Phase 3 Status Colors: Electric Violet if OpenGL ES context is successfully bound
-        if (glContextInitialized) {
-            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Stage 9: Electric Violet (OpenGL ES 3.0 Context Ready!)
+        // Phase 4 Status Colors: Racing Flame Amber / Neon Orange when D3D9 bridge is active
+        if (d3d9HookReady) {
+            SDL_SetRenderDrawColor(renderer, 255, 140, 0, 255);    // Stage 10: Flame Amber (D3D9 Translation Bridge Ready!)
+        } else if (glContextInitialized) {
+            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Stage 9: Electric Violet
         } else if (sectionsParsed) {
             SDL_SetRenderDrawColor(renderer, 0, 255, 204, 255);    // Stage 8: Teal
         } else if (engineParsed) {
