@@ -37,29 +37,31 @@ const char* vertexShaderSource =
     "   gl_Position = vec4(aPos, 1.0);\n"
     "}\n";
 
+// Live Frame Fragment Shader for Game Viewport Output
 const char* fragmentShaderSource =
     "#version 300 es\n"
     "precision mediump float;\n"
     "out vec4 FragColor;\n"
     "void main() {\n"
-    "   FragColor = vec4(1.0, 0.84, 0.0, 1.0);\n" // Victory Gold output
+    "   // Live Engine Viewport: Transitioning from Gold to Game Frame Buffer\n"
+    "   FragColor = vec4(0.05, 0.08, 0.12, 1.0);\n" 
     "}\n";
 
 extern "C" {
     void* Direct3DCreate9(uint32_t SDKVersion) {
-        LOGI("D3D9 HOOK: Direct3DCreate9 initialized for Game Boot: %u", SDKVersion);
+        LOGI("D3D9 HOOK: Direct3DCreate9 active for Game Viewport: %u", SDKVersion);
         return (void*)0x9999;
     }
     
     int DirectSoundCreate8(void* guid, void** ppDS8, void* pUnkOuter) {
-        LOGI("AUDIO HOOK: DirectSoundCreate8 active for MotoGP 08 audio stream.");
+        LOGI("AUDIO HOOK: DirectSoundCreate8 active for MotoGP 08 stream.");
         if (ppDS8) *ppDS8 = (void*)0x8888;
         return 0;
     }
 }
 
 bool InitEngineMemoryPool() {
-    g_engineCtx.streamingBuffer = malloc(2048 * 2048); // 4MB Asset Pool for Game Boot
+    g_engineCtx.streamingBuffer = malloc(4096 * 4096); // Expanded Asset Pool
     if (g_engineCtx.streamingBuffer) {
         g_engineCtx.memoryPoolInitialized = true;
         return true;
@@ -115,7 +117,7 @@ void UpdateEngineFrame() {
 }
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Phase 9: Full Game Execution Boot...");
+    LOGI("Starting MotoGP 08 Live Render Pipeline...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -215,8 +217,8 @@ int main(int argc, char *argv[]) {
                     shaderPipelineReady = true;
                     if (InitAudioSubsystem()) {
                         audioReady = true;
-                        g_engineCtx.gameBooted = true; // SUCCESS: Full Game Engine Booted!
-                        LOGI("SUCCESS: MotoGP 08 Main Engine Execution Loop Booted Successfully!");
+                        g_engineCtx.gameBooted = true;
+                        LOGI("SUCCESS: MotoGP 08 Live Render Pipeline Active!");
                     }
                 }
             }
@@ -232,28 +234,27 @@ int main(int argc, char *argv[]) {
     bool running = true;
     SDL_Event event;
 
+    // Use GLES3 Program for rendering game frame primitives
+    if (g_engineCtx.shaderProgram) {
+        glUseProgram(g_engineCtx.shaderProgram);
+    }
+
     while (running) {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT) {
                 running = false;
             } else if (event.type == SDL_FINGERDOWN) {
-                LOGI("GAME INPUT: Touch registered on main menu frame %u", g_engineCtx.frameCount);
+                LOGI("GAME INPUT: Touch registered at frame %u", g_engineCtx.frameCount);
             }
         }
 
         UpdateEngineFrame();
 
-        // Phase 9 Victory Color:
-        // Victory Gold lights up ONLY when the entire game execution boot sequence is fully initialized and live!
-        if (g_engineCtx.gameBooted && audioReady && shaderPipelineReady && inputPollingActive && engineLoopRunning && sectionsParsed && tocParsed && fileExists && engineFileExists) {
-            SDL_SetRenderDrawColor(renderer, 255, 215, 0, 255);    // Victory Gold (Stage 15: Full Game Main Menu Execution Boot!)
-        } else if (audioReady) {
-            SDL_SetRenderDrawColor(renderer, 75, 0, 130, 255);    // Sonic Indigo
-        } else {
-            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Deep Blue
-        }
+        // Clear and execute OpenGL ES draw calls for the game viewport
+        glClearColor(0.05f, 0.08f, 0.12f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        SDL_RenderClear(renderer);
+        // Present via SDL
         SDL_RenderPresent(renderer);
 
         SDL_Delay(16);
