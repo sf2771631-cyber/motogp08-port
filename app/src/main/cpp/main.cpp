@@ -13,7 +13,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Internal File Entry Parser...");
+    LOGI("Starting MotoGP 08 Asset Extraction Engine...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -26,12 +26,21 @@ int main(int argc, char *argv[]) {
     }
 
     char dataMixPath[512];
+    char cacheDirPath[512];
+    char extractedFilePath[512];
+    
     snprintf(dataMixPath, sizeof(dataMixPath), "%s/DATA.MIX", basePath);
+    snprintf(cacheDirPath, sizeof(cacheDirPath), "%s/cache", basePath);
+    snprintf(extractedFilePath, sizeof(extractedFilePath), "%s/extracted_test.bin", cacheDirPath);
+
+    // Ensure cache directory exists
+    mkdir(cacheDirPath, 0777);
 
     bool fileExists = (access(dataMixPath, F_OK) == 0);
     bool headerParsed = false;
     bool tocParsed = false;
     bool entriesParsed = false;
+    bool assetExtracted = false;
     uint32_t fileCount = 0;
 
     if (fileExists) {
@@ -43,14 +52,24 @@ int main(int argc, char *argv[]) {
                 
                 if (fread(&fileCount, sizeof(uint32_t), 1, file) == 1) {
                     tocParsed = true;
-                    LOGI("TOC Parsed: Total internal files = %u", fileCount);
 
-                    // Milestone MIX entry structure typically contains name offset/string and data offsets
-                    // Let's verify we can seek past or read the first entry block safely
                     if (fileCount > 0 && fileCount < 100000) {
-                        // Skip or read entry headers to test structural integrity
                         entriesParsed = true;
-                        LOGI("SUCCESS: Internal file entry structures validated!");
+
+                        // Test extraction: Read a small chunk from the archive and write it to cache
+                        fseek(file, 2048, SEEK_SET); // Jump into data region
+                        char buffer[256];
+                        size_t bytesRead = fread(buffer, 1, sizeof(buffer), file);
+                        
+                        if (bytesRead > 0) {
+                            FILE* outFile = fopen(extractedFilePath, "wb");
+                            if (outFile) {
+                                fwrite(buffer, 1, bytesRead, outFile);
+                                fclose(outFile);
+                                LOGI("SUCCESS: Extracted %zu bytes from DATA.MIX into cache!", bytesRead);
+                                assetExtracted = true;
+                            }
+                        }
                     }
                 }
             }
@@ -89,17 +108,19 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 5-Stage Visual Status Colors:
-        if (entriesParsed) {
-            SDL_SetRenderDrawColor(renderer, 0, 180, 180, 255);    // Stage 5: Racing Neon Cyan (Entries Parsed!)
+        // 6-Stage Visual Status Colors:
+        if (assetExtracted) {
+            SDL_SetRenderDrawColor(renderer, 50, 255, 50, 255);     // Stage 6: Racing Neon Lime (Asset Extracted!)
+        } else if (entriesParsed) {
+            SDL_SetRenderDrawColor(renderer, 0, 180, 180, 255);    // Stage 5: Neon Cyan
         } else if (tocParsed) {
-            SDL_SetRenderDrawColor(renderer, 140, 20, 180, 255);  // Stage 4: Racing Purple/Magenta
+            SDL_SetRenderDrawColor(renderer, 140, 20, 180, 255);  // Stage 4: Purple
         } else if (headerParsed) {
-            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Stage 3: Racing Gold/Orange
+            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Stage 3: Gold
         } else if (fileExists) {
-            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Stage 2: Racing Green
+            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Stage 2: Green
         } else {
-            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Racing Blue
+            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Blue
         }
 
         SDL_RenderClear(renderer);
