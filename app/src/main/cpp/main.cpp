@@ -17,12 +17,12 @@
 extern "C" {
     void* Direct3DCreate9(uint32_t SDKVersion) {
         LOGI("D3D9 HOOK: Direct3DCreate9 called with SDK Version: %u", SDKVersion);
-        return (void*)0x9999; // Mock D3D9 device interface handle
+        return (void*)0x9999;
     }
 }
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Phase 4: D3D9 Translation Bridge Initialization...");
+    LOGI("Starting MotoGP 08 Phase 4: File-Gated Pipeline...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -41,27 +41,23 @@ int main(int argc, char *argv[]) {
     char dataMixPath[512];
     char engineDllPath[512];
     char cacheDirPath[512];
-    char extractedFilePath[512];
     
     snprintf(dataMixPath, sizeof(dataMixPath), "%s/DATA.MIX", basePath);
     snprintf(engineDllPath, sizeof(engineDllPath), "%s/Engine.dll", basePath);
     snprintf(cacheDirPath, sizeof(cacheDirPath), "%s/cache", basePath);
-    snprintf(extractedFilePath, sizeof(extractedFilePath), "%s/extracted_test.bin", cacheDirPath);
 
     mkdir(cacheDirPath, 0777);
 
     bool fileExists = (access(dataMixPath, F_OK) == 0);
     bool headerParsed = false;
     bool tocParsed = false;
-    bool entriesParsed = false;
-    bool assetExtracted = false;
     bool engineParsed = false;
     bool sectionsParsed = false;
     bool glContextInitialized = false;
     bool d3d9HookReady = false;
     uint32_t fileCount = 0;
 
-    // 1. MIX Pipeline
+    // 1. DATA.MIX Verification
     if (fileExists) {
         FILE* file = fopen(dataMixPath, "rb");
         if (file) {
@@ -70,27 +66,13 @@ int main(int argc, char *argv[]) {
                 headerParsed = true;
                 if (fread(&fileCount, sizeof(uint32_t), 1, file) == 1) {
                     tocParsed = true;
-                    if (fileCount > 0 && fileCount < 100000) {
-                        entriesParsed = true;
-                        fseek(file, 2048, SEEK_SET);
-                        char buffer[256];
-                        size_t bytesRead = fread(buffer, 1, sizeof(buffer), file);
-                        if (bytesRead > 0) {
-                            FILE* outFile = fopen(extractedFilePath, "wb");
-                            if (outFile) {
-                                fwrite(buffer, 1, bytesRead, outFile);
-                                fclose(outFile);
-                                assetExtracted = true;
-                            }
-                        }
-                    }
                 }
             }
             fclose(file);
         }
     }
 
-    // 2. Engine.dll PE Section Verification
+    // 2. Engine.dll Verification
     if (access(engineDllPath, F_OK) == 0) {
         FILE* dllFile = fopen(engineDllPath, "rb");
         if (dllFile) {
@@ -133,11 +115,9 @@ int main(int argc, char *argv[]) {
     SDL_GLContext glContext = SDL_GL_CreateContext(window);
     if (glContext) {
         glContextInitialized = true;
-        // Test our D3D9 hook stub
         void* d3dDevice = Direct3DCreate9(32);
         if (d3dDevice) {
             d3d9HookReady = true;
-            LOGI("SUCCESS: D3D9 Translation Bridge Stub Initialized!");
         }
     }
 
@@ -157,27 +137,18 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Phase 4 Status Colors: Racing Flame Amber / Neon Orange when D3D9 bridge is active
-        if (d3d9HookReady) {
-            SDL_SetRenderDrawColor(renderer, 255, 140, 0, 255);    // Stage 10: Flame Amber (D3D9 Translation Bridge Ready!)
+        // Strict File-Gated Status Colors:
+        // Flame Amber ONLY unlocks when both OpenGL, D3D9 stubs, AND actual game assets (DATA.MIX + Engine.dll) are fully verified!
+        if (d3d9HookReady && sectionsParsed && tocParsed) {
+            SDL_SetRenderDrawColor(renderer, 255, 140, 0, 255);    // Flame Amber (All Systems & Game Assets Verified!)
         } else if (glContextInitialized) {
-            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Stage 9: Electric Violet
+            SDL_SetRenderDrawColor(renderer, 138, 43, 226, 255);    // Electric Violet (Graphics Context Ready)
         } else if (sectionsParsed) {
-            SDL_SetRenderDrawColor(renderer, 0, 255, 204, 255);    // Stage 8: Teal
-        } else if (engineParsed) {
-            SDL_SetRenderDrawColor(renderer, 255, 30, 30, 255);    // Stage 7: Laser Red
-        } else if (assetExtracted) {
-            SDL_SetRenderDrawColor(renderer, 50, 255, 50, 255);    // Stage 6: Neon Lime
-        } else if (entriesParsed) {
-            SDL_SetRenderDrawColor(renderer, 0, 180, 180, 255);    // Stage 5: Neon Cyan
-        } else if (tocParsed) {
-            SDL_SetRenderDrawColor(renderer, 140, 20, 180, 255);  // Stage 4: Purple
-        } else if (headerParsed) {
-            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Stage 3: Gold
+            SDL_SetRenderDrawColor(renderer, 0, 255, 204, 255);    // Teal (Engine.dll Sections Verified)
         } else if (fileExists) {
-            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Stage 2: Green
+            SDL_SetRenderDrawColor(renderer, 50, 255, 50, 255);    // Neon Lime (DATA.MIX Found)
         } else {
-            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Blue
+            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Blue (Waiting for Files / Stage 1)
         }
 
         SDL_RenderClear(renderer);
