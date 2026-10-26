@@ -12,7 +12,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Direct Asset Parser...");
+    LOGI("Starting MotoGP 08 3-Stage Diagnostic Parser...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -25,27 +25,33 @@ int main(int argc, char *argv[]) {
     }
 
     char dataMixPath[512];
-    // Point directly to DATA.MIX in the root files folder shown in your screenshots
     snprintf(dataMixPath, sizeof(dataMixPath), "%s/DATA.MIX", basePath);
 
     LOGI("Target Path for fopen: %s", dataMixPath);
 
+    bool fileExists = (access(dataMixPath, F_OK) == 0);
     bool headerParsed = false;
-    FILE* file = fopen(dataMixPath, "rb");
-    if (file) {
-        fseek(file, 0, SEEK_END);
-        long fileSize = ftell(file);
-        rewind(file);
 
-        char header[5] = {0};
-        fread(header, 1, 4, file);
-        fclose(file);
+    if (fileExists) {
+        LOGI("SUCCESS: DATA.MIX file detected on storage!");
+        FILE* file = fopen(dataMixPath, "rb");
+        if (file) {
+            fseek(file, 0, SEEK_END);
+            long fileSize = ftell(file);
+            rewind(file);
 
-        LOGI("SUCCESS: Opened DATA.MIX directly! File Size: %ld bytes", fileSize);
-        LOGI("MIX Header Magic Bytes: %s", header);
-        headerParsed = true;
+            char header[5] = {0};
+            fread(header, 1, 4, file);
+            fclose(file);
+
+            LOGI("SUCCESS: Opened DATA.MIX! File Size: %ld bytes", fileSize);
+            LOGI("MIX Header Magic Bytes: %s", header);
+            headerParsed = true;
+        } else {
+            LOGE("ERROR: File exists but fopen failed! Errno: %d (%s)", errno, strerror(errno));
+        }
     } else {
-        LOGE("ERROR: fopen failed! Errno: %d (%s)", errno, strerror(errno));
+        LOGE("WAITING: DATA.MIX not found at target path.");
     }
 
     SDL_Window* window = SDL_CreateWindow(
@@ -77,10 +83,13 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // 3-Stage Visual Status Colors:
         if (headerParsed) {
-            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Racing Gold/Orange (Successfully Read!)
+            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Stage 3: Racing Gold/Orange (Parsed Successfully!)
+        } else if (fileExists) {
+            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Stage 2: Racing Green (File Found on Storage)
         } else {
-            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Racing Green (Waiting for read)
+            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Racing Blue (File Missing / Not Found)
         }
 
         SDL_RenderClear(renderer);
