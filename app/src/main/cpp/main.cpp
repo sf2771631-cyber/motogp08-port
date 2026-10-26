@@ -12,7 +12,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 3-Stage Diagnostic Parser...");
+    LOGI("Starting MotoGP 08 .MIX Table of Contents (TOC) Parser...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -27,13 +27,12 @@ int main(int argc, char *argv[]) {
     char dataMixPath[512];
     snprintf(dataMixPath, sizeof(dataMixPath), "%s/DATA.MIX", basePath);
 
-    LOGI("Target Path for fopen: %s", dataMixPath);
-
     bool fileExists = (access(dataMixPath, F_OK) == 0);
     bool headerParsed = false;
+    bool tocParsed = false;
+    uint32_t fileCount = 0;
 
     if (fileExists) {
-        LOGI("SUCCESS: DATA.MIX file detected on storage!");
         FILE* file = fopen(dataMixPath, "rb");
         if (file) {
             fseek(file, 0, SEEK_END);
@@ -41,17 +40,23 @@ int main(int argc, char *argv[]) {
             rewind(file);
 
             char header[5] = {0};
-            fread(header, 1, 4, file);
-            fclose(file);
+            size_t bytesRead = fread(header, 1, 4, file);
+            if (bytesRead == 4) {
+                headerParsed = true;
+                LOGI("SUCCESS: DATA.MIX Header parsed! Size: %ld bytes", fileSize);
 
-            LOGI("SUCCESS: Opened DATA.MIX! File Size: %ld bytes", fileSize);
-            LOGI("MIX Header Magic Bytes: %s", header);
-            headerParsed = true;
+                // Read file count index (typically stored right after header in Milestone MIX structures)
+                if (fread(&fileCount, sizeof(uint32_t), 1, file) == 1) {
+                    LOGI("SUCCESS: Milestone .MIX TOC Traversed! Internal File Count: %u", fileCount);
+                    tocParsed = true;
+                } else {
+                    LOGE("WARNING: Header read OK, but failed to read internal file count TOC.");
+                }
+            }
+            fclose(file);
         } else {
-            LOGE("ERROR: File exists but fopen failed! Errno: %d (%s)", errno, strerror(errno));
+            LOGE("ERROR: fopen failed! Errno: %d (%s)", errno, strerror(errno));
         }
-    } else {
-        LOGE("WAITING: DATA.MIX not found at target path.");
     }
 
     SDL_Window* window = SDL_CreateWindow(
@@ -83,13 +88,15 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 3-Stage Visual Status Colors:
-        if (headerParsed) {
-            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Stage 3: Racing Gold/Orange (Parsed Successfully!)
+        // 4-Stage Visual Status Colors:
+        if (tocParsed) {
+            SDL_SetRenderDrawColor(renderer, 140, 20, 180, 255);  // Stage 4: Racing Purple/Magenta (TOC Parsed!)
+        } else if (headerParsed) {
+            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Stage 3: Racing Gold/Orange (Header Read)
         } else if (fileExists) {
-            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Stage 2: Racing Green (File Found on Storage)
+            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Stage 2: Racing Green (File Found)
         } else {
-            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Racing Blue (File Missing / Not Found)
+            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);    // Stage 1: Racing Blue (Missing)
         }
 
         SDL_RenderClear(renderer);
