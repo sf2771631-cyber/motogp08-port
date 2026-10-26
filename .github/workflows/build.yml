@@ -34,11 +34,14 @@ jobs:
         fi
         chmod +x gradlew
 
-    - name: Download SDL2 Source
+    - name: Download SDL2 Source and Copy Java Helper Classes
       run: |
         if [ ! -d "app/src/main/cpp/SDL" ]; then
           git clone --depth 1 --branch release-2.30.9 https://github.com/libsdl-org/SDL.git app/src/main/cpp/SDL
         fi
+        SDL_JAVA_DIR=$(find app/src/main/cpp/SDL -type d -path "*/org/libsdl/app" | head -n 1)
+        mkdir -p app/src/main/java/org/libsdl/app
+        cp -r "$SDL_JAVA_DIR"/* app/src/main/java/org/libsdl/app/
 
     - name: Download and Setup Android NDK r26b
       run: |
@@ -55,7 +58,7 @@ jobs:
     - name: Build APK with Gradle
       run: |
         ./gradlew assembleDebug --stacktrace > build_log.txt 2>&1 || {
-          echo "=== BUILD FAILED - C++ COMPILER ERROR ==="
+          echo "=== BUILD FAILED - COMPILER ERROR ==="
           grep -i -C 5 "error:" build_log.txt || tail -n 100 build_log.txt
           exit 1
         }
