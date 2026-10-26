@@ -3,53 +3,48 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <stdio.h>
 
 #define LOG_TAG "MotoGP08Port"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Storage & File Initializer...");
+    LOGI("Starting MotoGP 08 .MIX Asset Parser...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
         return -1;
     }
 
-    // Get Android Scoped Storage Path
     const char* basePath = SDL_AndroidGetExternalStoragePath();
     if (!basePath) {
-        LOGE("Failed to get SDL External Storage Path!");
         basePath = "/sdcard/Android/data/com.port.motogp08/files";
     }
 
-    // Construct paths
-    char dirPath[512];
     char dataMixPath[512];
-    snprintf(dirPath, sizeof(dirPath), "%s/motogp08", basePath);
-    snprintf(dataMixPath, sizeof(dataMixPath), "%s/DATA.MIX", dirPath);
+    snprintf(dataMixPath, sizeof(dataMixPath), "%s/motogp08/DATA.MIX", basePath);
 
-    LOGI("Target Directory Path: %s", dirPath);
+    LOGI("Attempting to open asset container: %s", dataMixPath);
 
-    // Automatically create the folder if it doesn't exist
-    struct st;
-    if (access(dirPath, F_OK) != 0) {
-        int result = mkdir(dirPath, 0777);
-        if (result == 0) {
-            LOGI("SUCCESS: Created directory %s", dirPath);
-        } else {
-            LOGE("ERROR: Failed to create directory %s", dirPath);
-        }
+    bool headerParsed = false;
+    FILE* file = fopen(dataMixPath, "rb");
+    if (file) {
+        // Read file size
+        fseek(file, 0, SEEK_END);
+        long fileSize = ftell(file);
+        rewind(file);
+
+        // Read first 4 bytes (MIX Header / Magic)
+        char header[5] = {0};
+        fread(header, 1, 4, file);
+        fclose(file);
+
+        LOGI("SUCCESS: Opened DATA.MIX! File Size: %ld bytes", fileSize);
+        LOGI("MIX Header Magic Bytes: %s", header);
+        headerParsed = true;
     } else {
-        LOGI("Directory already exists: %s", dirPath);
-    }
-
-    // Check if DATA.MIX is present
-    bool fileExists = (access(dataMixPath, F_OK) == 0);
-    if (fileExists) {
-        LOGI("SUCCESS: DATA.MIX detected in folder!");
-    } else {
-        LOGE("WAITING: DATA.MIX not found at %s", dataMixPath);
+        LOGE("ERROR: Failed to open DATA.MIX for parsing.");
     }
 
     SDL_Window* window = SDL_CreateWindow(
@@ -81,17 +76,17 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // Green if DATA.MIX is found, Blue if waiting for files
-        if (fileExists) {
-            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255); // Racing Green
+        // Color coding: Racing Gold/Orange if .MIX header parsed successfully, Green if found, Blue if missing
+        if (headerParsed) {
+            SDL_SetRenderDrawColor(renderer, 220, 120, 20, 255); // Racing Gold/Orange (Parsed!)
         } else {
-            SDL_SetRenderDrawColor(renderer, 15, 25, 45, 255);   // Racing Blue
+            SDL_SetRenderDrawColor(renderer, 20, 100, 50, 255);   // Racing Green (Found)
         }
 
         SDL_RenderClear(renderer);
         SDL_RenderPresent(renderer);
 
-        SDL_Delay(16); // ~60 FPS
+        SDL_Delay(16);
     }
 
     SDL_DestroyRenderer(renderer);
