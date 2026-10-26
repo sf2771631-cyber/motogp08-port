@@ -13,7 +13,7 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
 int main(int argc, char *argv[]) {
-    LOGI("Starting MotoGP 08 Engine Binary (Engine.dll) Parser...");
+    LOGI("Starting MotoGP 08 PE Section & Import Analyzer...");
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) {
         LOGE("SDL_Init Error: %s", SDL_GetError());
@@ -43,6 +43,7 @@ int main(int argc, char *argv[]) {
     bool entriesParsed = false;
     bool assetExtracted = false;
     bool engineParsed = false;
+    bool sectionsParsed = false;
     uint32_t fileCount = 0;
 
     // 1. MIX Pipeline Verification
@@ -74,36 +75,35 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    // 2. Engine.dll PE Header Validation Pipeline
+    // 2. Engine.dll PE Section & Header Verification
     if (access(engineDllPath, F_OK) == 0) {
         FILE* dllFile = fopen(engineDllPath, "rb");
         if (dllFile) {
             char mzHeader[2] = {0};
-            if (fread(mzHeader, 1, 2, dllFile) == 2) {
-                if (mzHeader[0] == 'M' && mzHeader[1] == 'Z') {
-                    LOGI("SUCCESS: Engine.dll MS-DOS 'MZ' header verified!");
-                    
-                    // Read PE signature offset located at e_lfanew (offset 0x3C in DOS header)
-                    fseek(dllFile, 0x3C, SEEK_SET);
-                    int32_t peOffset = 0;
-                    if (fread(&peOffset, sizeof(int32_t), 1, dllFile) == 1) {
-                        fseek(dllFile, peOffset, SEEK_SET);
-                        char peSignature[4] = {0};
-                        if (fread(peSignature, 1, 4, dllFile) == 4) {
-                            if (peSignature[0] == 'P' && peSignature[1] == 'E' && peSignature[2] == 0 && peSignature[3] == 0) {
-                                LOGI("SUCCESS: Engine.dll Portable Executable (PE) signature verified!");
-                                engineParsed = true;
+            if (fread(mzHeader, 1, 2, dllFile) == 2 && mzHeader[0] == 'M' && mzHeader[1] == 'Z') {
+                fseek(dllFile, 0x3C, SEEK_SET);
+                int32_t peOffset = 0;
+                if (fread(&peOffset, sizeof(int32_t), 1, dllFile) == 1) {
+                    fseek(dllFile, peOffset, SEEK_SET);
+                    char peSignature[4] = {0};
+                    if (fread(peSignature, 1, 4, dllFile) == 4 && peSignature[0] == 'P' && peSignature[1] == 'E' && peSignature[2] == 0 && peSignature[3] == 0) {
+                        engineParsed = true;
+                        
+                        // Read PE File Header to get Number of Sections (located 6 bytes after PE signature start)
+                        // PE Header format: Signature(4) + Machine(2) + NumberOfSections(2) ...
+                        fseek(dllFile, peOffset + 4 + 2, SEEK_SET);
+                        uint16_t numOfSections = 0;
+                        if (fread(&numOfSections, sizeof(uint16_t), 1, dllFile) == 1) {
+                            LOGI("SUCCESS: Engine.dll parsed! Number of PE sections: %u", numOfSections);
+                            if (numOfSections > 0 && numOfSections < 100) {
+                                sectionsParsed = true;
                             }
                         }
                     }
                 }
             }
             fclose(dllFile);
-        } else {
-            LOGE("ERROR: Failed to open Engine.dll for parsing.");
         }
-    } else {
-        LOGE("WAITING: Engine.dll not found in root files directory.");
     }
 
     SDL_Window* window = SDL_CreateWindow(
@@ -135,9 +135,11 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        // 7-Stage Visual Status Colors:
-        if (engineParsed) {
-            SDL_SetRenderDrawColor(renderer, 255, 30, 30, 255);    // Stage 7: Racing Laser Red (Engine.dll PE Parsed!)
+        // 8-Stage Visual Status Colors:
+        if (sectionsParsed) {
+            SDL_SetRenderDrawColor(renderer, 75, 0, 130, 255);      // Stage 8: Racing Electric Indigo (PE Sections Verified!)
+        } else if (engineParsed) {
+            SDL_SetRenderDrawColor(renderer, 255, 30, 30, 255);    // Stage 7: Laser Red
         } else if (assetExtracted) {
             SDL_SetRenderDrawColor(renderer, 50, 255, 50, 255);    // Stage 6: Neon Lime
         } else if (entriesParsed) {
